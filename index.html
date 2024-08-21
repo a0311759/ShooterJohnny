@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shooter Johnny</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <button class="play-button" onclick="showDashboard()">Play</button>
+    </div>
+
+    <div class="dashboard">
+        <div class="scoreboard">
+            <h2>Score: <span id="score">0</span></h2>
+        </div>
+        <div class="gun"
+             onmousedown="startFiring(event)" onmouseup="stopFiring()" onmouseleave="stopFiring()"
+             ontouchstart="startFiring(event)" ontouchend="stopFiring()"></div>
+    </div>
+
+    <div class="game-over-overlay">
+        <div class="game-over-message">
+            <h1>Game Over</h1>
+            <p>Your final score is: <span id="final-score">0</span></p>
+            <button class="play-again-button" onclick="restartGame()">Play Again</button>
+        </div>
+    </div>
+
+    <script>let firingInterval;
+let gun = document.querySelector('.gun');
+let obstacles = [];
+let obstacleCount = 0;
+let dragging = false;
+let startX, startLeft;
+let score = 0;
+let maxObstacles = 11;
+let obstacleInterval;
+let gameIsOver = false;
+let audioCtx;
+
+function initializeAudioContext() {
+    if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+    if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+}
+
+function playHockeyBubbleSound() {
+    initializeAudioContext();
+
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.setValueAtTime(600, audioCtx.currentTime); 
+    gainNode.gain.setValueAtTime(0.7, audioCtx.currentTime); 
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.4);
+}
+
+function playBubbleBurstSound() {
+    initializeAudioContext();
+
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(200, audioCtx.currentTime); 
+    gainNode.gain.setValueAtTime(0.7, audioCtx.currentTime); 
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.25);
+}
+
+function playGameOverSound() {
+    initializeAudioContext();
+
+    const oscillator = audioCtx.createOscillator();
+    const gainNode = audioCtx.createGain();
+
+    oscillator.type = 'sawtooth';
+    oscillator.frequency.setValueAtTime(50, audioCtx.currentTime); 
+    gainNode.gain.setValueAtTime(1, audioCtx.currentTime); 
+    gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.6);
+
+    oscillator.connect(gainNode);
+    gainNode.connect(audioCtx.destination);
+
+    oscillator.start();
+    oscillator.stop(audioCtx.currentTime + 0.6);
+}
+
+function showDashboard() {
+    document.querySelector('.container').style.display = 'none';
+    document.querySelector('.dashboard').style.display = 'flex';
+    document.querySelector('.game-over-overlay').style.display = 'none'; 
+    gameIsOver = false;
+    createObstacles(); 
+}
+
+function startFiring(event) {
+    event.preventDefault(); 
+    if (event.type === 'touchstart') {
+        event = event.touches[0]; 
+    }
+    dragging = true;
+    startX = event.clientX;
+    startLeft = parseInt(window.getComputedStyle(gun).left, 10);
+    firingInterval = setInterval(fireBullet, 100); 
+    document.addEventListener('mousemove', dragGun);
+    document.addEventListener('mouseup', stopDragging);
+    document.addEventListener('touchmove', dragGun, { passive: false });
+    document.addEventListener('touchend', stopDragging);
+}
+
+function stopFiring() {
+    clearInterval(firingInterval);
+    stopDragging(); 
+}
+
+function stopDragging() {
+    dragging = false;
+    document.removeEventListener('mousemove', dragGun);
+    document.removeEventListener('mouseup', stopDragging);
+    document.removeEventListener('touchmove', dragGun);
+    document.removeEventListener('touchend', stopDragging);
+}
+
+function dragGun(event) {
+    if (!dragging) return;
+    event.preventDefault(); 
+    const clientX = event.clientX || event.touches[0].clientX;
+    const deltaX = clientX - startX;
+    gun.style.left = `${Math.min(Math.max(startLeft + deltaX, 0), window.innerWidth - gun.offsetWidth)}px`;
+}
+
+function fireBullet() {
+    const bullet = document.createElement('div');
+    bullet.className = 'bullet';
+
+    const gunRect = gun.getBoundingClientRect();
+    bullet.style.left = `${gunRect.left + gunRect.width / 2 - 7.5}px`; 
+    bullet.style.bottom = '120px'; 
+
+    document.querySelector('.dashboard').appendChild(bullet);
+
+    let bulletBottom = 120;
+    const bulletInterval = setInterval(() => {
+        bulletBottom += 10;
+        bullet.style.bottom = bulletBottom + 'px';
+
+        checkCollision(bullet, bulletInterval);
+
+        if (bulletBottom > window.innerHeight) {
+            clearInterval(bulletInterval);
+            bullet.remove();
+        }
+    }, 20);
+}
+
+function checkCollision(bullet, bulletInterval) {
+    obstacles.forEach(obstacle => {
+        const bulletRect = bullet.getBoundingClientRect();
+        const obstacleRect = obstacle.getBoundingClientRect();
+
+        if (bulletRect.left < obstacleRect.right &&
+            bulletRect.right > obstacleRect.left &&
+            bulletRect.top < obstacleRect.bottom &&
+            bulletRect.bottom > obstacleRect.top) {
+            
+            playHockeyBubbleSound(); 
+
+            obstacle.dataset.health -= 1; 
+            updateScore(1); 
+            obstacle.textContent = obstacle.dataset.health; 
+            if (obstacle.dataset.health <= 0) {
+                playBubbleBurstSound(); 
+                const points = obstacle.dataset.initialHealth * 2; 
+                updateScore(points); 
+                obstacle.remove(); 
+                obstacles = obstacles.filter(o => o !== obstacle); 
+            }
+            clearInterval(bulletInterval);
+            bullet.remove(); 
+        }
+    });
+}
+
+function createObstacles() {
+    obstacleInterval = setInterval(() => {
+        if (!gameIsOver && obstacles.length < maxObstacles) {
+            const obstacle = document.createElement('div');
+            obstacle.className = `obstacle type${Math.floor(Math.random() * 3) + 1}`;
+            obstacle.style.left = `${Math.random() * (window.innerWidth - 40)}px`; 
+            obstacle.style.top = `0px`; 
+            obstacle.dataset.health = Math.floor(Math.random() * 76) + 1; 
+            obstacle.dataset.initialHealth = obstacle.dataset.health; 
+            obstacle.textContent = obstacle.dataset.health; 
+
+            document.querySelector('.dashboard').appendChild(obstacle);
+            obstacles.push(obstacle);
+            moveObstacle(obstacle);
+        }
+    }, 2000); 
+}
+
+function moveObstacle(obstacle) {
+    let obstacleTop = 0;
+    const obstacleMoveInterval = setInterval(() => {
+        if (gameIsOver) {
+            clearInterval(obstacleMoveInterval);
+            return;
+        }
+
+        obstacleTop += 5;
+        obstacle.style.top = obstacleTop + 'px';
+
+        if (obstacleTop > window.innerHeight) {
+            clearInterval(obstacleMoveInterval);
+            obstacle.remove();
+            obstacles = obstacles.filter(o => o !== obstacle); 
+        }
+
+        if (checkGunCollision(obstacle)) {
+            clearInterval(obstacleMoveInterval);
+            gameOver();
+        }
+    }, 100);
+}
+
+function checkGunCollision(obstacle) {
+    const gunRect = gun.getBoundingClientRect();
+    const obstacleRect = obstacle.getBoundingClientRect();
+
+    return (
+        gunRect.left < obstacleRect.right &&
+        gunRect.right > obstacleRect.left &&
+        gunRect.top < obstacleRect.bottom &&
+        gunRect.bottom > obstacleRect.top
+    );
+}
+
+function gameOver() {
+    gameIsOver = true;
+    document.querySelector('.dashboard').style.display = 'none';
+    document.querySelector('.game-over-overlay').style.display = 'flex'; 
+    clearInterval(firingInterval); 
+    clearInterval(obstacleInterval); 
+    obstacles.forEach(obstacle => obstacle.remove()); 
+    obstacles = []; 
+    playGameOverSound(); 
+    document.getElementById('final-score').textContent = score;
+}
+
+function restartGame() {
+    document.querySelector('.game-over-overlay').style.display = 'none'; 
+    document.querySelector('.container').style.display = 'none'; 
+    document.querySelector('.dashboard').style.display = 'flex'; 
+    score = 0; 
+    document.getElementById('score').textContent = score; 
+    gameIsOver = false;
+    createObstacles(); 
+}
+
+function updateScore(points) {
+    score += points;
+    document.getElementById('score').textContent = score;
+}
+
+        
+    </script>
+</body>
+</html>
